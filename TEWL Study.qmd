@@ -1,0 +1,1319 @@
+---
+title: "TEWL Study"
+format: html
+editor_options: 
+  chunk_output_type: console
+editor: 
+  markdown: 
+    wrap: 72
+---
+
+```{r data_load, message=FALSE, warning=FALSE, echo=FALSE}
+
+library(tidyverse)
+library(ggplot2)
+library(readxl)
+library(writexl)
+library(kableExtra)
+library(Gmisc)
+
+Data_Raw <- read_xlsx("BAART/TEWL Data.xlsx") |> 
+  mutate(visit_mash = paste(visit,":", reading))
+
+Characteristics <- read_xlsx("BAART/patients.xlsx") |> 
+  filter(id %in% Data_Raw$id)
+
+Data_Raw <- Data_Raw |> 
+  left_join(Characteristics, by = "id")
+```
+
+```{r, data_filter, message=FALSE, warning=FALSE, echo=FALSE}
+
+
+Data_Raw <- Data_Raw |> 
+  mutate(date_healed = as.Date(date_healed, format = "%Y-%m-%d"),
+         visit_date = as.Date(visit_date, format = "%Y-%m-%d"))
+
+Data <- Data_Raw |> 
+  mutate(days_since_healed = as.numeric(difftime(visit_date, date_healed, units = "days")),
+         weeks_since_healed = floor(days_since_healed / 7), 
+         months_since_healed = floor(weeks_since_healed)/4)  |> 
+  mutate(contra = as.numeric(contra), 
+         arm = factor(arm, levels = c("Placebo", "Timolol")))
+
+exclude_these <- Data |> 
+  filter(visit == 1, days_since_healed > 60) |> 
+  group_by(id) |> 
+  slice(1) |> 
+  ungroup()
+
+Characteristics <- Characteristics |> 
+  mutate(days_to_reulceration = as.numeric(difftime(reulceration_date, date_healed, units = "days"))) |> 
+  mutate(reulceration_value = ifelse(reulceration == "Yes", 1, 0)) |> 
+  filter(! (id %in% exclude_these$id))
+
+Data <- Data |> 
+  filter(! (id %in% exclude_these$id)) |> 
+  filter(weeks_since_healed <= 16) |> 
+  mutate(contra = as.numeric(contra)) |> 
+  mutate(adj_wound = wound - contra)  |> 
+  select(id, everything()) |> 
+  mutate(weeks_interval = floor(weeks_since_healed / 4) * 4) |> 
+  mutate(weeks_interval = ifelse(weeks_since_healed < 0, 0, floor(weeks_since_healed / 4) * 4))
+```
+
+```{r Characteristics, message=FALSE, warning=FALSE, echo=FALSE}
+
+library(table1)
+  
+Characteristics <- Characteristics |> 
+  mutate(
+    abi = as.numeric(abi), 
+    toe_pressure = as.numeric(toe_pressure), 
+    dme = as.factor(dme), 
+    smoking = as.factor(smoking))
+
+label(Characteristics$arm) <- "Study Arm"
+label(Characteristics$id) <- "Patient ID"
+label(Characteristics$death_y_n) <- "Mortality Status"
+label(Characteristics$death_date) <- "Death Date"
+label(Characteristics$home_health) <- "Home Health Status"
+label(Characteristics$pet) <- "Has Pet"
+label(Characteristics$sex) <- "Sex"
+label(Characteristics$age) <- "Age"
+label(Characteristics$bmi) <- "BMI"
+label(Characteristics$dm_duration) <- "Duration of Diabetes"
+label(Characteristics$wound_duration) <- "Ulcer Age"
+label(Characteristics$dfu_severity) <- "DFU Severity Score"
+label(Characteristics$dme) <- "Durable Medical Equipment"
+label(Characteristics$site) <- "Ulcer Site"
+label(Characteristics$monofilament_score) <- "Monofilament Score"
+label(Characteristics$cci) <- "CCI*"
+label(Characteristics$abi) <- "Ankle Brachial Index"
+label(Characteristics$toe_index) <- "Toe Index"
+label(Characteristics$toe_pressure) <- "Toe Pressure"
+label(Characteristics$date_healed) <- "Date DFU Healed"
+label(Characteristics$reulceration) <- "Reulceration Status"
+label(Characteristics$days_to_healed) <- "Days to Heal"
+label(Characteristics$smoking) <- "Smoking History"
+label(Characteristics$hx_ampu) <- "Amputation History"
+label(Characteristics$race) <- "Race"
+label(Characteristics$unemployable) <- "Unemployable"
+label(Characteristics$permanent_disabled) <- "Permanently Disabled"
+label(Characteristics$homelessness_hx) <- "History of Homelessness"
+label(Characteristics$initial_size_cm) <- "Initial Wound Size (cm)"
+label(Characteristics$food_insecurity_index) <- "Food Insecurity Index"
+label(Characteristics$socioneed_index) <- "SocioNeeds Index"
+label(Characteristics$socioneed_rank) <- "SocioNeeds Rank"
+label(Characteristics$hpi) <- "Healthy Places Index (HPI)"
+label(Characteristics$hpi_percentile) <- "HPI Percentile"
+
+
+## P-Values 
+pvalue <- function(x) {
+  if(is.factor(x) || is.character(x)) {
+    return(fisher.test(table(x, Characteristics$arm))$p.value)
+  } else if (is.numeric(x)) {
+    return(t.test(x ~ Characteristics$arm)$p.value)
+  }
+}
+```
+
+## Table 1
+
+```{r tableone, echo=FALSE}
+library(tableone)
+
+# Define the variables to include in Table 1
+vars <- c(
+  "sex", 
+  "age", 
+  "ethnicity", 
+  "race", 
+  "bmi", 
+  "dm_duration", 
+  "dfu_severity", 
+  "dme", 
+  "cci", 
+  "smoking", 
+  "hx_ampu", 
+  "home_health", 
+  "permanent_disabled", 
+  "homelessness_hx", 
+  "food_insecurity_index", 
+  "socioneed_index", 
+  "socioneed_rank", 
+  "hpi", 
+  "hpi_percentile", 
+  "death_y_n", 
+  "wound_size_cm",
+  "wound_duration",
+  "site", 
+  "days_v1_to_heal",
+  "abi",
+  "toe_pressure",
+  "monofilament_score"
+)
+
+
+# Define the factor variables
+factor_vars <- c(
+  "sex", 
+  "race", 
+  "dme", 
+  "smoking", 
+  "hx_ampu", 
+  "home_health", 
+  "permanent_disabled", 
+  "homelessness_hx", 
+  "death_y_n"
+)
+
+# Create the table
+table1 <- CreateTableOne(vars = vars, strata = "arm", data = Characteristics, factorVars = factor_vars)
+
+# Print the table with all levels of categorical variables shown
+print(table1, showAllLevels = TRUE, quote = TRUE, noSpaces = TRUE, printToggle = TRUE)
+
+
+# Create the Table 1
+table1 <- CreateTableOne(vars = vars, strata = "arm", data = Characteristics, factorVars = factor_vars)
+
+# Convert TableOne to a data frame
+table1_df <- as.data.frame(print(table1, showAllLevels = TRUE, quote = FALSE, noSpaces = TRUE))
+```
+
+## Data Distribution
+
+```{r data_distribution, message=FALSE, warning=FALSE, echo=FALSE}
+
+ggplot(Data) +
+  aes(x = wound, fill = arm) +
+  geom_histogram(bins = 30L) +
+  scale_fill_hue(name = "Study Arm",
+                 direction = -1) +
+  theme_minimal() +
+  facet_wrap(vars(arm)) +
+ labs(title = "Wound TEWL Distribution by Study Arm",
+       x = "Wound TEWL", 
+       y = "Total Readings")
+
+# Data Collection Distribution
+ggplot(Data) +
+  aes(x = weeks_since_healed) +
+  geom_histogram(bins = 30L, fill = "#46337E") +
+  theme_minimal() + 
+  labs(title = "Data Collection Distribution (Total)",
+       x = "Weeks Since Healed", 
+       y = "Total Readings")
+
+# Data Collection Distribution <16
+ggplot(Data) +
+  aes(x = weeks_since_healed, fill = arm) +
+  geom_histogram(bins = 30L) +
+  scale_fill_hue(name = "Study Arm",
+                 direction = -1) +
+  theme_minimal() +
+  labs(title = "Data Collection Distribution < 16 weeks",
+       x = "Weeks Since Healed", 
+       y = "Total Readings")
+```
+
+## Within-Visit Wound TEWL Variability
+
+```{r reading_variability, warning=FALSE, message=FALSE, echo=FALSE}
+
+Data_Sum <- Data |> 
+  group_by(id, visit) |> 
+  summarise(TEWL = mean(wound, na.rm = TRUE),
+            SD_TEWL = sd(wound, na.rm = TRUE),
+            Min_TEWL = min(wound, na.rm = TRUE),
+            Max_TEWL = max(wound, na.rm = TRUE),
+            Range_TEWL = Max_TEWL - Min_TEWL,
+            five_cm = mean(five_cm), 
+            contra = mean(as.numeric(contra)), 
+            contra_five_cm = mean(as.numeric(contra_five_cm)), 
+            visit = first(visit), 
+            visit_date = first(visit_date), 
+            days_since_healed = first(days_since_healed), 
+            weeks_since_healed = first(weeks_since_healed), 
+            months_since_healed = first(months_since_healed)) |> 
+  ungroup() |> 
+  left_join(Characteristics, by = "id")
+
+# Coefficient of Variation
+visit_summary <- Data_Sum |> 
+  mutate(CV_TEWL = SD_TEWL/ TEWL)
+
+# Plot of Within-Visit TEWL Variability by Patient
+ggplot(visit_summary, aes(x = factor(visit), y = SD_TEWL, group = id)) +
+  geom_line(aes(color = factor(id))) +
+  geom_point(aes(color = factor(id))) +
+  theme_minimal() +
+  labs(title = "Within-Visit TEWL Variability by Patient",
+       x = "Visit",
+       y = "Standard Deviation of TEWL",
+       color = "Patient ID")
+```
+
+There is significant variability, to improve, outliers will be removed
+based on the outliers for all wound TEWL values irregardless of arm.
+
+## Wound TEWL Outliers
+
+```{r outlier_identification, message=FALSE, warning=FALSE, echo=FALSE}
+
+Data_Clean_Wound <- Data %>%
+  mutate(
+    Q1 = quantile(wound, 0.25, na.rm = TRUE),
+    Q3 = quantile(wound, 0.75, na.rm = TRUE),
+    IQR = Q3 - Q1,
+    Lower_Bound = Q1 - 1.5 * IQR,
+    Upper_Bound = Q3 + 1.5 * IQR
+  ) %>%
+  filter(wound >= Lower_Bound & wound <= Upper_Bound) %>%
+  select(-c(Q1, Q3, IQR, Lower_Bound, Upper_Bound))
+
+
+# Re-evaluating the Within-Visit TEWL
+Data_Sum <- Data_Clean_Wound |> 
+  group_by(id, visit) |> 
+  summarise(TEWL = mean(wound, na.rm = TRUE),
+            SD_TEWL = sd(wound, na.rm = TRUE),
+            Min_TEWL = min(wound, na.rm = TRUE),
+            Max_TEWL = max(wound, na.rm = TRUE),
+            Range_TEWL = Max_TEWL - Min_TEWL,
+            five_cm = mean(five_cm), 
+            contra = mean(as.numeric(contra)), 
+            contra_five_cm = mean(as.numeric(contra_five_cm)), 
+            visit = first(visit), 
+            visit_date = first(visit_date), 
+            days_since_healed = first(days_since_healed), 
+            weeks_since_healed = first(weeks_since_healed), 
+            months_since_healed = first(months_since_healed)) |> 
+  ungroup() |> 
+  left_join(Characteristics, by = "id")
+
+# Coefficient of Variation
+visit_summary <- Data_Sum |> 
+  mutate(CV_TEWL = SD_TEWL/ TEWL)
+
+# Coefficient of Variation
+visit_summary <- visit_summary |> 
+  mutate(CV_TEWL = SD_TEWL / TEWL)
+
+# Plot of Within-Visit TEWL Variability by Patient
+ggplot(visit_summary, aes(x = factor(visit), y = SD_TEWL, group = id)) +
+  geom_line(aes(color = factor(id))) +
+  geom_point(aes(color = factor(id))) +
+  theme_minimal() +
+  labs(title = "Within-Visit TEWL Variability by Patient",
+       x = "Visit",
+       y = "Standard Deviation of TEWL",
+       color = "Patient ID")
+
+Data_Clean_Wound <- Data_Clean_Wound |> 
+  mutate(contra = as.numeric(contra))  |> 
+  select(id, visit, reading, visit_date, wound, five_cm, contra, contra_five_cm, adj_wound, weeks_interval, visit_mash, days_since_healed, weeks_since_healed, months_since_healed) |> 
+  left_join(Characteristics, by = "id")
+```
+
+Outliers were evaluated for all wound TEWL values. Those that sat
+outside IQR bounds were removed. A total of 13 values were removed.
+
+-   Raw Data: 310 Observations
+
+-   Clean Data: 307 Observations
+
+```{r, data_ref, echo=FALSE}
+# Relevling the variables
+
+Data_Clean_Wound$smoking <- relevel(Data_Clean_Wound$smoking, ref = "Never")
+Data_Clean_Wound$dme <- relevel(Data_Clean_Wound$dme, ref = "None")
+```
+
+## ANCOVA Model Wound TEWL
+
+```{r, ANCOVA, message=FALSE, warning=FALSE, echo=FALSE}
+ancova_model_W0 <- aov(wound ~ 
+                arm
+              + days_since_healed 
+              + contra,
+              data = Data_Clean_Wound,
+                    subset = (weeks_since_healed < 4))
+
+ancova_model_W4 <- aov(wound ~ 
+                arm
+                + days_since_healed 
+                + contra,
+                    data = Data_Clean_Wound,
+                    subset = (weeks_since_healed < 8))
+
+ancova_model_W8 <- aov(wound ~ 
+                arm
+                + days_since_healed 
+                + contra,
+                    data = Data_Clean_Wound,
+                    subset = (weeks_since_healed < 12))
+
+ancova_model_W12 <- aov(wound ~ 
+                arm
+                + days_since_healed 
+                + contra,
+                    data = Data_Clean_Wound,
+                    subset = (weeks_since_healed < 16))
+
+## Displaying them in a table
+library(knitr)
+library(broom)
+library(kableExtra)
+
+# Create a list of your models
+model_list <- list(ancova_model_W0, ancova_model_W4, ancova_model_W8, ancova_model_W12)
+
+# Name the list for convenience
+names(model_list) <- paste("Visit", 1:4)
+
+# Extract the tidy summaries of each model
+model_summaries <- lapply(model_list, tidy)
+
+# Combine all summaries into a single data frame
+combined_summaries <- bind_rows(model_summaries, .id = "Visit")
+
+relevant_terms <- combined_summaries %>%
+  filter(term %in% c("arm", "days_since_healed", "contra", "smoking", "age", "thickness")) %>%
+  select(Visit, term, p.value) %>%
+  mutate(p.value = ifelse(p.value < 0.001, "< 0.001", sprintf("%.3f", p.value)))
+
+
+
+pivot_df <- pivot_wider(relevant_terms, names_from = Visit, values_from = p.value)
+
+colnames(pivot_df)[-1] <- paste("Visit", 1:4, "P-Value")
+
+# Use kable to create a nicely formatted table
+kable(pivot_df, format = "html", 
+                     caption = "P-Values for ANCOVA Models Across Visits by Variable for wound TEWL",
+                      col.names = c("Term", "Month 1", "Month 2", "Month 3", "Month 4")) |> 
+                       kable_styling(bootstrap_options = c("striped", "hover", "condensed"), 
+                full_width = F, 
+                position = "left")
+```
+
+## Average Wound TEWL by Arm
+
+```{r boxplot, message=FALSE, warning=FALSE, echo=FALSE}
+
+mean <- Data_Clean_Wound |> 
+  group_by(arm) |> 
+  summarise(wound_mean = mean(wound, na.rm = TRUE), 
+            n = n()) 
+
+summary(aov(wound ~ arm, data = Data_Clean_Wound))
+
+wound_filtered <- Data_Clean_Wound |> 
+  filter(weeks_interval <= 16) |> 
+  group_by(arm, id, visit) |> 
+  summarise(wound = mean(wound, na.rm = TRUE), 
+            contra = mean(contra, na.rm = TRUE), 
+            adj_wound = mean(adj_wound, na.rm = TRUE))
+
+t_test <- t.test(wound_filtered$wound ~ wound_filtered$arm)
+pvalue <- round(t_test$p.value, 3)
+
+p <- ggplot(wound_filtered, aes(x = arm, y = wound, fill = arm)) +
+  geom_boxplot() +
+    geom_jitter(position = position_jitter(width = 0.2), color = "black", size = 3.0, alpha = 0.7) +
+  scale_fill_hue(direction = -1) +
+  labs(
+    x = NULL,
+    y = "Mean TEWL (g/m²/hr)",
+    fill = "Treatment Arm"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none", 
+        axis.line = element_line(color = "gray40", size = 1.5),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+    plot.margin = unit(c(0, 0, .5, 1), "cm"), 
+     axis.text.y = element_text(size = 15), 
+    axis.title.y = element_text(vjust = 4, angle = 90, size = 20)) 
+
+p <- p + geom_segment(aes(x = 1, xend = 2, y = 49, yend = 49), 
+                      linetype = "solid", 
+                      color = "grey40") +
+         geom_segment(aes(x = 1, xend = 1, y = 48, yend = 49),
+                      linetype = "solid",
+                      color = "grey40") +
+   geom_segment(aes(x = 2, xend = 2, y = 48, yend = 49),
+                      linetype = "solid",
+                      color = "grey40") +
+         annotate("text", x = 1.5, y = 47,
+                   label = pvalue,  
+                  size = 4, color = "grey40")
+
+# Print the plot
+print(p)
+
+
+t_test <- t.test(wound_filtered$adj_wound ~ wound_filtered$arm)
+pvalue <- round(t_test$p.value, 3)
+
+p <- ggplot(wound_filtered, aes(x = arm, y = adj_wound, fill = arm)) +
+  geom_boxplot() +
+    geom_jitter(position = position_jitter(width = 0.2), color = "black", size = 3.0, alpha = 0.7) +
+  scale_fill_hue(direction = -1) +
+  labs(
+    x = NULL,
+    y = "Adjusted Mean TEWL (g/m²/hr)",
+    fill = "Treatment Arm"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none", 
+        axis.line = element_line(color = "gray40", size = 1.5),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+    plot.margin = unit(c(0, 0, .5, 1), "cm"), 
+     axis.text.y = element_text(size = 15), 
+    axis.title.y = element_text(vjust = 4, angle = 90, size = 20)) 
+
+p <- p + geom_segment(aes(x = 1, xend = 2, y = 49, yend = 49), 
+                      linetype = "solid", 
+                      color = "grey40") +
+         geom_segment(aes(x = 1, xend = 1, y = 48, yend = 49),
+                      linetype = "solid",
+                      color = "grey40") +
+   geom_segment(aes(x = 2, xend = 2, y = 48, yend = 49),
+                      linetype = "solid",
+                      color = "grey40") +
+         annotate("text", x = 1.5, y = 47,
+                  label = pvalue, 
+                  size = 4, color = "grey40")
+
+# Print the plot
+print(p)
+```
+
+### Speed of Healing on TEWL
+
+```{r speed_of_healing, echo=FALSE}
+
+model <- lmer(wound ~ 
+                arm*days_to_healed 
+              + (1 | id), 
+              data = Data_Clean_Wound)
+summary(model)
+```
+
+## Average Wound TEWL by Arm Over Time
+
+```{r avg_wound, warning=FALSE, message=FALSE, echo=FALSE}
+
+Data_Clean_Wound <- Data_Clean_Wound |> 
+  mutate(contra = as.numeric(contra))
+
+Data_Means <- Data_Clean_Wound |> 
+  filter(weeks_since_healed < 16) |> 
+  group_by(arm, weeks_interval) |> 
+  summarise(
+    mean_TEWL = mean(wound, na.rm = TRUE),
+    mean_contra = mean(contra, na.rm = TRUE),
+    sd_contra = sd(contra, na.rm = TRUE),
+    sd_TEWL = sd(wound, na.rm = TRUE),
+    n = n(),
+    .groups = 'drop') |> 
+  mutate(
+    se_TEWL = sd_TEWL / sqrt(n),
+    ci_upper = mean_TEWL + qt(0.975, df = n - 1) * se_TEWL,
+    ci_lower = mean_TEWL - qt(0.975, df = n - 1) * se_TEWL,
+    se_contra = sd_contra / sqrt(n),
+    ci_upper_contra = mean_contra + qt(0.975, df = n - 1) * se_contra,
+    ci_lower_contra = mean_contra - qt(0.975, df = n - 1) * se_contra)
+
+Contra_Means <- Data_Clean_Wound |> 
+filter(weeks_since_healed < 16) |> 
+  group_by(weeks_interval) |> 
+  summarise(
+    mean_contra = mean(contra, na.rm = TRUE),
+    sd_contra = sd(contra, na.rm = TRUE),
+    n = n(),
+    .groups = 'drop') |> 
+  mutate(
+    se_contra = sd_contra / sqrt(n),
+    ci_upper_contra = mean_contra + qt(0.975, df = n - 1) * se_contra,
+    ci_lower_contra = mean_contra - qt(0.975, df = n - 1) * se_contra)
+
+# Calculate p-values for ANOVA across time points
+time_points <- c(0, 4, 8, 12)
+
+model_list <- list(
+  W0 = ancova_model_W0,
+  W4 = ancova_model_W4,
+  W8 = ancova_model_W8,
+  W12 = ancova_model_W12)
+
+tidy_select <- function(model) {
+  tidy(model) %>%
+    select(term, p.value = `p.value`) %>%
+    mutate(model = deparse(substitute(model)))}
+
+p_values <- bind_rows(lapply(model_list, tidy_select), .id = "Timepoint") %>%
+  select(Timepoint, everything()) |> 
+  filter(term == "arm") |> 
+  mutate(p.value = ifelse(p.value < 0.001, "< 0.001", round(p.value, digits = 3)))
+
+p_W8 <- p_values |> 
+  filter(Timepoint == "W8") |> 
+  select(p.value)
+
+p_W8 <- paste("*p =", formatC(p_W8$p.value[1], format = "e", digits = 2))
+
+p_W12 <- p_values |> 
+  filter(Timepoint == "W12") |> 
+  select(p.value)
+
+p_W12 <- paste("*p =", formatC(p_W12$p.value[1], format = "e", digits = 2))
+```
+
+### TEWL 3 Months After Healing
+
+```{r TEWL_after_3_mo, ech = FALSE}
+
+three_month <- Data_Clean_Wound |> 
+  filter(months_since_healed > 2, months_since_healed < 4)
+
+t_test <- t.test(wound ~ arm, three_month)
+pvalue <- round(t_test$p.value,3)
+
+p <- ggplot(three_month, aes(x = arm, y = wound, fill = arm)) +
+  geom_boxplot() +
+  scale_fill_hue(direction = -1) +
+  labs(
+    x = NULL,
+    y = "Healed DFU TEWL After 3 Months (g/m²/hr)",
+    fill = "Treatment Arm"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none", 
+        axis.line = element_line(color = "gray40", size = 1.5),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+    plot.margin = unit(c(0, 0, .5, 1), "cm"), 
+     axis.text.y = element_text(size = 15), 
+    axis.title.y = element_text(vjust = 4, angle = 90, size = 20)) 
+
+p <- p + geom_segment(aes(x = 1, xend = 2, y = 49, yend = 49), 
+                      linetype = "solid", 
+                      color = "grey40") +
+         geom_segment(aes(x = 1, xend = 1, y = 48, yend = 49),
+                      linetype = "solid",
+                      color = "grey40") +
+   geom_segment(aes(x = 2, xend = 2, y = 48, yend = 49),
+                      linetype = "solid",
+                      color = "grey40") +
+         annotate("text", x = 1.5, y = 47,
+                  label = paste("*",pvalue), 
+                  size = 4, color = "grey40")
+
+p
+```
+
+### Graphing
+
+#### Placebo Group
+
+```{r graphplacebo, include=FALSE}
+
+# Graph Prep
+month_labels <- c("1 month", "2 months", "3 months", "4 months")
+
+time_points_month <- c(1, 2, 3, 4)  
+
+# Sig Bars
+vertical_line_data_8 <- Data_Means %>% 
+  filter(weeks_interval == 8) %>%
+  summarise(ymin = min(mean_TEWL), ymax = max(mean_TEWL))
+vertical_line_data_12 <- Data_Means %>% 
+  filter(weeks_interval == 12) %>%
+  summarise(ymin = min(mean_TEWL), ymax = max(mean_TEWL))
+
+# Filter Data for Placebo only
+placebo_data <- Data_Means %>% 
+  filter(arm == "Placebo")
+
+# Initial plot with Placebo group
+p <- ggplot() +
+  geom_ribbon(data = placebo_data, aes(x = weeks_interval, ymin = ci_lower, ymax = ci_upper, fill = arm), alpha = 0.3, color = NA) +
+  geom_line(data = placebo_data, aes(x = weeks_interval, y = mean_TEWL, group = arm, color = arm), linewidth = 3) +
+  geom_point(data = placebo_data, aes(x = weeks_interval, y = mean_TEWL, color = arm), size = 5) +
+  scale_color_manual(values = c("Placebo" = "#00B7BB")) +
+  scale_fill_manual(values = c("Placebo" = "#00B7BB")) +
+  labs(
+    x = "Months Since Healed", 
+    y = "Mean TEWL (g/m²/hr)") +
+  scale_x_continuous(
+    limits = c(0, 12.2),
+    breaks = c(0, 4, 8, 12, 15),
+    labels = c("0", "1", "2", "3", "")) +
+scale_y_continuous(
+    limits = c(16, 30), 
+    breaks = seq(18, 28, by = 2), 
+    labels = seq(18, 28, by = 2)) +
+  theme_minimal() +
+  theme(legend.position = "none", 
+        axis.line = element_line(color = "gray40", size = 1.5),
+         axis.ticks.length = unit(0.25, "cm"),
+       axis.ticks = element_line(color = "gray40", size = 1.5, ),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        axis.text.x = element_text(size = 20),
+       axis.text.y = element_text(hjust = 2, size = 15),
+    axis.title.y = element_text(vjust = 4, angle = 90, size = 20),
+    axis.title.x = element_text(vjust = -1, size = 20),
+    plot.margin = unit(c(0, 0, .5, 1), "cm"))
+
+# Print the plot with only Placebo
+print(p)
+```
+
+#### Adding in Timolol Group
+
+```{r timololadd, include=FALSE}
+# Adding Timolol group
+timolol_data <- Data_Means %>% 
+  filter(arm == "Timolol")
+
+p <- p + 
+  geom_ribbon(data = timolol_data, aes(x = weeks_interval, ymin = ci_lower, ymax = ci_upper, fill = arm), alpha = 0.2, color = NA) +
+  geom_line(data = timolol_data, aes(x = weeks_interval, y = mean_TEWL, group = arm, color = arm), size = 3) +
+  geom_point(data = timolol_data, aes(x = weeks_interval, y = mean_TEWL, color = arm), size = 5) +
+  scale_color_manual(values = c("Placebo" = "#00B7BB", "Timolol" = "#FF6964")) +
+  scale_fill_manual(values = c("Placebo" = "#00B7BB", "Timolol" = "#FF6964")) +
+  scale_y_continuous(
+    limits = c(16, 30), 
+    breaks = seq(18, 28, by = 2), 
+    labels = seq(18, 28, by = 2)
+  ) +
+ theme_minimal() +
+ theme(legend.position = "none", 
+        axis.line = element_line(color = "gray40", size = 1.5),
+         axis.ticks.length = unit(0.25, "cm"),
+       axis.ticks = element_line(color = "gray40", size = 1.5, ),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        axis.text.x = element_text(size = 20),
+       axis.text.y = element_text(hjust = 2, size = 15),
+    axis.title.y = element_text(vjust = 4, angle = 90, size = 20),
+    axis.title.x = element_text(vjust = -1, size = 20),
+    plot.margin = unit(c(0, 0, .5, 1), "cm"))
+
+# Print the updated plot
+print(p)
+
+```
+
+#### Adding in Contralateral TEWL
+
+```{r contra, echo=FALSE}
+
+p <- p + 
+geom_line(data = Contra_Means, aes(x = weeks_interval, y = mean(Contra_Means$mean_contra), color = "Contralateral TEWL"), linetype = "dashed", size = 2) +
+  scale_color_manual(values = c("Placebo" = "#00B7BB", "Timolol" = "#FF6964", "Contralateral TEWL" = "gray20")) +
+scale_y_continuous(
+    limits = c(16, 30), 
+    breaks = seq(18, 28, by = 2), 
+    labels = seq(18, 28, by = 2)) 
+p
+```
+
+## Patient Counts
+
+```{r pt_counts, message=FALSE, warning=FALSE, echo=FALSE}
+
+patient_counts <- Data_Clean_Wound  |> 
+  group_by(arm, weeks_interval)  |> 
+  summarise(patient_count = n_distinct(id), .groups = 'drop') 
+
+# Kable Table
+patient_counts_wide <- patient_counts %>%
+  pivot_wider(names_from = weeks_interval, values_from = patient_count, names_prefix = "Week_") %>%
+  select(arm, starts_with("Week_"))
+
+# Generate and style the table
+kable_table <- kable(patient_counts_wide, format = "html", 
+                     caption = "Patient Counts by Treatment Arm Across Weeks") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), 
+                full_width = F, 
+                position = "left") %>%
+  column_spec(1, bold = T)
+
+# Display the table
+kable_table
+```
+
+## Linear Mixed Model: Wound TEWL
+
+```{r assumptions, warning=FALSE, message=FALSE, include=FALSE}
+
+library(lmerTest)
+library(car)
+library(performance)
+
+# Fit the model
+model <- lmer(wound ~ 
+              arm * months_since_healed 
+              + contra
+              + dme
+              + dfu_severity
+              + bmi
+              + abi
+              + (1 | id),
+              data = Data_Clean_Wound) 
+AIC(model)
+
+# Check for linearity and homoscedasticity
+plot(model)
+
+# Check for normality of residuals
+qqnorm(resid(model))
+qqline(resid(model))
+
+# Check for independence
+acf(residuals(model))
+
+# Variance inflation factor for fixed effects
+library(car)
+vif(model)
+
+# Check overall model performance
+check_model(model)
+```
+
+```{r modelsummary, echo=FALSE}
+
+summary(model)
+```
+
+#### Forest Plot
+
+```{r model_forst, echo=FALSE}
+library(broom.mixed)
+library(ggtext)
+library(ggbreak)
+
+# Extract coefficients using broom.mixed
+model_tidy <- tidy(model, effects = "fixed")
+
+# Calculate confidence intervals
+model_tidy <- model_tidy %>%
+  mutate(
+    conf.low = estimate - 1.96 * std.error,
+    conf.high = estimate + 1.96 * std.error
+  )
+
+# Format terms and add p-values conditionally
+model_tidy <- model_tidy %>%
+  mutate(
+    plot_term = dplyr::recode(term,
+      "(Intercept)" = "Intercept",
+      "armTimolol" = "Arm: Timolol",
+      "contra" = "**Contralateral Foot TEWL**",
+      "months_since_healed" = "Months Since Healed",
+      "smokingCurrent" = "Smoking: Current",
+      "smokingFormer" = "Smoking: Former",
+      "dmeCane" = "DME: Cane",
+      "dmeWalker" = "DME: Walker",
+      "dmeWheelchair" = "**DME: Wheelchair**",
+      "abi" = "Ankle Brachial Index",
+      "dfu_severity" = "DFU Severity Score",
+      "bmi" = "BMI",
+      "armTimolol:months_since_healed" = "**Timolol * Months Since Healed**"
+    ),
+    p_plot = ifelse(!is.na(p.value) & grepl("\\*\\*", plot_term), 
+                    paste("p-value:", sprintf("%.3f", p.value)), "")
+  ) %>%
+  mutate(p_plot = dplyr::recode(p_plot, "p-value: 0.000" = "p-value < 0.001"))
+
+# Add reference rows
+reference_terms <- data.frame(
+  term = c("DME: None", "Arm: Placebo"),
+  estimate = c(NA, NA),
+  std.error = c(NA, NA),
+  statistic = c(NA, NA),
+  p.value = c(NA, NA),
+  conf.low = c(NA, NA),
+  conf.high = c(NA, NA),
+  plot_term = c("DME: None", "Arm: Placebo"),
+  p_plot = c("", "")
+)
+
+# Bind the reference terms to the model_tidy
+model_tidy <- bind_rows(model_tidy, reference_terms)
+
+# Specify the order of the terms (from bottom to top)
+order_of_terms <- (c("DFU Severity Score", "Ankle Brachial Index", "BMI", "Smoking: Current", "Smoking: Former", "Smoking: Never","**DME: Wheelchair**","DME: Cane", "DME: Walker", "DME: None", "Months Since Healed", "Arm: Timolol", "Arm: Placebo","**Contralateral Foot TEWL**", "**Timolol * Months Since Healed**", "Intercept"))
+
+model_tidy <- model_tidy %>%
+  mutate(plot_term = factor(plot_term, levels = order_of_terms))
+
+# Print to check the ordering
+print(model_tidy)
+
+# Create the forest plot
+
+# Add a color mapping
+custom_colors <- c(
+  "Arm: Timolol" = "grey",
+  "Months Since Healed" = "grey",
+  "Smoking: Current" = "grey",
+  "Smoking: Former" = "grey",
+  "**Contralateral Foot TEWL**" = "red",
+  "DME: Cane" = "grey",
+  "DME: Walker" = "grey",
+  "**DME: Wheelchair**" = "blue",
+  "Ankle Brachial Index" = "grey",
+  "DFU Severity Score" = "grey",
+  "BMI" = "grey",
+  "**Timolol * Months Since Healed**" = "blue",
+  "Smoking: Never" = "grey",
+  "DME: None" = "grey",
+  "Arm: Placebo" = "grey",
+  "Intercept" = "grey"
+)
+
+model_tidy <- model_tidy %>%
+  mutate(color = custom_colors[plot_term])
+
+# Print to check the ordering and color mapping
+print(model_tidy)
+
+# Create the forest plot
+
+ggplot(model_tidy, aes(x = plot_term, y = estimate)) +
+  geom_hline(yintercept = 0, linetype = "dashed", size = 1) + 
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high, color = plot_term), width = 0.2, size = 1.5) + 
+  geom_point(aes(color = plot_term, fill = plot_term), size = 4, shape = 21) +
+  coord_flip() +
+  xlab("") +
+  ylab("Predicted Change in TEWL per Variable (g/m²/hr)") +
+  scale_fill_manual(values = custom_colors, guide = "none") +
+  scale_color_manual(values = custom_colors, guide = "none") +
+  scale_y_continuous(
+    breaks = c(seq(-15, -15, by = 5), seq(-10, 23, by = 5)), 
+    limits = c(-16, 16)
+  ) +
+  theme_minimal() +
+  theme(
+    strip.background = element_rect(fill = "grey90", colour = "grey90", size = 1), 
+    strip.text = element_text(size = 14, colour = "black"),
+    strip.placement = "outside",
+    axis.text.y = ggtext::element_markdown(size = 10),
+    axis.title.x = element_text(size = 12, vjust = -1),
+    axis.text.x = ggtext::element_markdown(),
+    axis.ticks = element_line(colour = "gray10"),
+    axis.text = element_text(size = 12, colour = "gray10")
+  ) +
+  labs(x = NULL) 
+```
+
+## Linear Mixed Model: Wound - Adjusted Wound TEWL
+
+```{r dif_linear, warning=FALSE, message=FALSE, include=FALSE}
+
+# Fit the model (example model)
+model <- lmer(adj_wound ~ 
+                arm * months_since_healed 
+              + dme
+              + dfu_severity
+              + bmi
+              + abi
+              + (1 | id), 
+              data = Data_Clean_Wound) 
+AIC(model)
+
+# Check for linearity and homoscedasticity
+plot(model)
+
+# Check for normality of residuals
+qqnorm(resid(model))
+qqline(resid(model))
+
+# Check for independence
+acf(residuals(model))
+
+# Variance inflation factor for fixed effects to check multicollinearity
+library(car)
+vif(model)
+
+# Check random effects distribution (this is more informal)
+ranef(model)
+
+# Check overall model performance
+check_model(model)
+```
+
+```{r model2summary, echo=FALSE}
+
+summary(model)
+AIC(model)
+```
+
+```{r model_forst, echo=FALSE}
+library(broom.mixed)
+library(ggtext)
+library(ggbreak)
+
+# Extract coefficients using broom.mixed
+model_tidy <- tidy(model, effects = "fixed")
+
+# Calculate confidence intervals
+model_tidy <- model_tidy %>%
+  mutate(
+    conf.low = estimate - 1.96 * std.error,
+    conf.high = estimate + 1.96 * std.error
+  )
+
+# Format terms and add p-values conditionally
+model_tidy <- model_tidy %>%
+  mutate(
+    plot_term = dplyr::recode(term,
+      "(Intercept)" = "Intercept",
+      "armTimolol" = "Arm: Timolol",
+      "months_since_healed" = "Months Since Healed",
+      "smokingCurrent" = "Smoking: Current",
+      "smokingFormer" = "Smoking: Former",
+      "dmeCane" = "DME: Cane",
+      "dmeWalker" = "DME: Walker",
+      "dmeWheelchair" = "DME: Wheelchair",
+      "abi" = "Ankle Brachial Index",
+      "dfu_severity" = "DFU Severity Score",
+      "bmi" = "BMI",
+      "armTimolol:months_since_healed" = "**Timolol * Months Since Healed**"
+    ),
+    p_plot = ifelse(!is.na(p.value) & grepl("\\*\\*", plot_term), 
+                    paste("p-value:", sprintf("%.3f", p.value)), "")
+  ) %>%
+  mutate(p_plot = dplyr::recode(p_plot, "p-value: 0.000" = "p-value < 0.001"))
+
+# Add reference rows
+reference_terms <- data.frame(
+  term = c("DME: None", "Arm: Placebo"),
+  estimate = c(NA, NA),
+  std.error = c(NA, NA),
+  statistic = c(NA, NA),
+  p.value = c(NA, NA),
+  conf.low = c(NA, NA),
+  conf.high = c(NA, NA),
+  plot_term = c("DME: None", "Arm: Placebo"),
+  p_plot = c("", "")
+)
+
+# Bind the reference terms to the model_tidy
+model_tidy <- bind_rows(model_tidy, reference_terms)
+
+# Specify the order of the terms (from bottom to top)
+order_of_terms <- rev(c("DME: Wheelchair","DME: Cane", "DME: Walker", "DME: None","DFU Severity Score", "Ankle Brachial Index", "BMI", "Smoking: Current", "Smoking: Former", "Smoking: Never", "Months Since Healed", "Arm: Timolol", "Arm: Placebo","**Timolol * Months Since Healed**", "Intercept"))
+
+model_tidy <- model_tidy %>%
+  mutate(plot_term = factor(plot_term, levels = rev(order_of_terms)))
+
+# Print to check the ordering
+print(model_tidy)
+
+# Create the forest plot
+
+# Add a color mapping
+custom_colors <- c(
+  "Arm: Timolol" = "grey",
+  "Months Since Healed" = "grey",
+  "Smoking: Current" = "grey",
+  "Smoking: Former" = "grey",
+  "DME: Cane" = "grey",
+  "DME: Walker" = "grey",
+  "DME: Wheelchair" = "grey",
+  "Ankle Brachial Index" = "grey",
+  "DFU Severity Score" = "grey",
+  "BMI" = "grey",
+  "**Timolol * Months Since Healed**" = "blue",
+  "Smoking: Never" = "grey",
+  "DME: None" = "grey",
+  "Arm: Placebo" = "grey",
+  "Intercept" = "grey"
+)
+
+model_tidy <- model_tidy %>%
+  mutate(color = custom_colors[plot_term])
+
+# Print to check the ordering and color mapping
+print(model_tidy)
+
+# Create the forest plot
+
+ggplot(model_tidy, aes(x = plot_term, y = estimate)) +
+  geom_hline(yintercept = 0, linetype = "dashed", size = 1) + 
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high, color = plot_term), width = 0.2, size = 1.5) + 
+  geom_point(aes(color = plot_term, fill = plot_term), size = 4, shape = 21) +
+  coord_flip() +
+  xlab("") +
+  ylab("Predicted Change in Adjusted TEWL per Variable (g/m²/hr)") +
+  scale_fill_manual(values = custom_colors, guide = "none") +
+  scale_color_manual(values = custom_colors, guide = "none") +
+  scale_y_continuous(
+    breaks = c(seq(-15, -15, by = 5), seq(-10, 23, by = 5)), 
+    limits = c(-16, 16)
+  ) +
+  theme_minimal() +
+  theme(
+    strip.background = element_rect(fill = "grey90", colour = "grey90", size = 1), 
+    strip.text = element_text(size = 14, colour = "black"),
+    strip.placement = "outside",
+    axis.text.y = ggtext::element_markdown(size = 10),
+    axis.title.x = element_text(size = 12, vjust = -1),
+    axis.text.x = ggtext::element_markdown(),
+    axis.ticks = element_line(colour = "gray10"),
+    axis.text = element_text(size = 12, colour = "gray10")
+  ) +
+  labs(x = NULL) 
+```
+
+## Reulceration
+
+```{r reulceration, message=FALSE, warning=FALSE, echo=FALSE}
+library(lme4)
+
+reulceration_summary <- Characteristics |> 
+  select(arm, reulceration) |>
+  group_by(arm, reulceration) |> 
+  summarise(Count = n(), .groups = 'drop') |> 
+  mutate(reulceration = ifelse(reulceration == "No", "No Reulceration", "Reulceration")) |> 
+  mutate(percentage = Count / sum(Count) * 100,
+         arm = paste(arm, ":", reulceration))
+
+color_palette <- c("Placebo : Reulceration" = "#00B7BB",
+                   "Placebo : No Reulceration" = "#80DBDD", 
+                   "Timolol : Reulceration" = "#FF6964",
+                   "Timolol : No Reulceration" = "#FFB4B2")
+
+# Plotting the pie chart
+ggplot(reulceration_summary, aes(x = "", y = percentage, fill = arm)) +
+  geom_bar(stat = "identity", width = 4, color = "white") +
+  coord_polar("y", start = 0) +
+  scale_fill_manual(values = color_palette) +
+  theme_void() +
+  labs(fill = "Group", title = "Reulceration Status by Treatment Arm") +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")), 
+            position = position_stack(vjust = 0.5))
+
+```
+
+### TEWL over Full Time by Arm and Reulceration Status
+
+```{r tewlovertime, echo=FALSE}
+
+Total_sum <- Data |> 
+  group_by(id, months_since_healed) |> 
+  summarise(wound_tewl = mean(wound), 
+            contra_tewl = mean(contra), 
+            reulceration = first(reulceration), 
+            arm = first(arm), 
+            count = n()) |> 
+  arrange(id)
+
+
+Data_Sum <- Total_sum |> 
+  mutate(
+    Q1 = quantile(wound_tewl, 0.25, na.rm = TRUE),
+    Q3 = quantile(wound_tewl, 0.75, na.rm = TRUE),
+    IQR = Q3 - Q1,
+    Lower_Bound = Q1 - 1.5 * IQR,
+    Upper_Bound = Q3 + 1.5 * IQR
+  ) %>%
+  filter(wound_tewl >= Lower_Bound & wound_tewl <= Upper_Bound) %>%
+  select(-c(Q1, Q3, IQR, Lower_Bound, Upper_Bound))
+
+Data_Sum <- Data_Sum |>
+    mutate(month_bin = cut(months_since_healed,
+                    breaks = c(-Inf, 0, 1, 2, 3, 4, Inf), 
+                    labels = c("0", "1", "2", "3", "4", "5+"),  
+                    include.lowest = TRUE)) |> 
+  group_by(month_bin, reulceration, arm) |> 
+  summarise(wound_tewl = mean(wound_tewl), 
+            contral_tewl = mean(contra_tewl), 
+            count = n(), 
+            month_bin = first(month_bin))
+
+ggplot(Data_Sum) +
+  aes(x = month_bin, y = wound_tewl, colour = arm, size = count, group = interaction(arm, reulceration)) +
+  geom_point(shape = "circle") +
+  geom_line(size = 1.0) +  
+  scale_color_hue(direction = -1) +
+  theme_minimal() +
+  facet_wrap(vars(reulceration))
+
+Data1 <- Data_Clean_Wound |>  
+mutate(reulceration = ifelse(reulceration == "No", "No Reulceration", "Reulceration")) |> 
+  mutate(arm = paste(arm, ":", reulceration)) |> 
+  group_by(reulceration, arm, id, visit) |> 
+  summarise(wound = mean(wound))
+
+color_palette <- c("Placebo : Reulceration" = "#00B7BB",
+                   "Placebo : No Reulceration" = "#90DBDD", 
+                   "Timolol : Reulceration" = "#FF6964",
+                   "Timolol : No Reulceration" = "#FFB4B2")
+
+ggplot(Data1) +
+  aes(x = arm, y = wound, fill = arm) +
+  scale_fill_manual(values = color_palette) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitter(width = 0.2), color = "black", size = 3.0, alpha = 0.7) +
+  theme_minimal() +
+  labs(
+    x = "Months Since Healed", 
+    y = "Mean TEWL (g/m²/hr)") +
+  theme(legend.position = "none", 
+        axis.line = element_line(color = "gray40", size = 1.5),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+    plot.margin = unit(c(0, 0, .5, 1), "cm"), 
+     axis.text.y = element_text(size = 15), 
+    axis.title.y = element_text(vjust = 4, angle = 90, size = 20)) 
+
+
+Data2 <- Data |> 
+  group_by(reulceration, arm, id, visit) |> 
+  summarise(wound = mean(wound))
+
+ggplot(Data2) +
+  aes(x = reulceration, y = wound, fill = reulceration) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitter(width = 0.2), color = "black", size = 3.0, alpha = 0.7) +
+  theme_minimal() +
+  scale_color_hue(direction = -1) +
+  labs(
+    x = "Reulceration", 
+    y = "Mean TEWL (g/m²/hr)") +
+  theme(legend.position = "none", 
+        axis.line = element_line(color = "gray40", size = 1.5),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+    plot.margin = unit(c(0, 0, .5, 1), "cm"), 
+     axis.text.y = element_text(size = 15), 
+    axis.title.y = element_text(vjust = 4, angle = 90, size = 20)) 
+```
+
+#### Reulceration and TEWL Variability
+
+```{r reulcerationvariability, echo=FALSE}
+
+Min_Max <- Data_Clean_Wound |> 
+  group_by(id, arm) |> 
+  summarise(Min = min(wound), 
+            Max = max(wound), 
+            reulceration = first(reulceration)) |> 
+  mutate(delta = Max - Min)
+
+ggplot(Min_Max) +
+  aes(x = reulceration, y = delta, fill = reulceration) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitter(width = 0.2), color = "black", size = 3.0, alpha = 0.7) +
+  theme_minimal() +
+  scale_fill_hue(direction = -1) +
+  labs(
+    x = "Reulceration", 
+    y = "TEWL Variance (g/m²/hr)") +
+  theme(axis.line = element_line(color = "gray40", size = 1.5),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+    plot.margin = unit(c(0, 0, .5, 1), "cm"), 
+     axis.text.y = element_text(size = 15), 
+    axis.title.y = element_text(vjust = 4, angle = 90, size = 20)) 
+
+ggplot(Min_Max) +
+  aes(x = reulceration, y = delta, fill = arm) +
+  geom_boxplot(position = position_dodge(width = 0.75), outlier.shape = NA) +  # Use position_dodge for boxplot
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.1, dodge.width = 0.75),  # Use position_jitterdodge for jitter
+              color = "black", size = 3.0, alpha = 0.7) +
+  theme_minimal() +
+  scale_fill_hue(direction = -1) +
+  labs(
+    x = "Reulceration", 
+    y = "Mean TEWL (g/m²/hr)") +
+  theme(axis.line = element_line(color = "gray40", size = 1.5),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        plot.margin = unit(c(0, 0, .5, 1), "cm"), 
+        axis.text.y = element_text(size = 15))
+```
+
+#### Reulceration and first TEWL value
+
+```{r first, echo=FALSE}
+
+First <- Data_Clean_Wound |> 
+  group_by(id) |> 
+  slice(1) |> 
+  filter(days_since_healed < 35) |> 
+  mutate(nl_days_to_heal = log2(days_to_healed)) |> 
+  mutate(adj_wound = wound - contra)
+
+lmm <- lm(adj_wound ~ arm 
+          + days_to_healed
+          + reulceration
+          + smoking
+          + dme
+          + bmi
+          , data = First)
+summary(lmm)
+
+
+ggplot(First) +
+  aes(x = reulceration, y = wound, fill = reulceration) +
+  geom_boxplot() +
+  #geom_jitter(position = position_jitter(width = 0.2), color = "black", size = 3.0, alpha = 0.7) +
+  theme_minimal() +
+  scale_y_continuous(limits = c(0, NA)) +
+  scale_fill_manual(values = c("No" = "#9999f2", "Yes" = "lightgoldenrod1")) +
+  theme(
+    legend.position = "none",
+    axis.line = element_line(color = "gray40", size = 1.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.margin = unit(c(0, 0, .5, 1), "cm"),
+    axis.text.y = element_text(size = 15),
+    axis.title.y = element_text(vjust = 4, angle = 90, size = 20))
+
+
+ggplot(First) +
+  aes(x = reulceration, y = adj_wound, fill = reulceration) +
+  geom_boxplot(outlier.shape = NA) + # Hide outliers
+  #geom_jitter(position = position_jitter(width = 0.2), color = "black", size = 3.0, alpha = 0.7) +
+  theme_minimal() +
+  scale_y_continuous(limits = c(0, NA)) +
+  scale_fill_brewer(palette = "Set2", direction = 1) +
+  theme(
+    legend.position = "none",
+    axis.line = element_line(color = "gray40", size = 1.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.margin = unit(c(0, 0, .5, 1), "cm"),
+    axis.text.y = element_text(size = 15),
+    axis.title.y = element_text(vjust = 4, angle = 90, size = 20)
+  )
+
+t.test(wound ~ reulceration, data = First)
+
+First <- First |> 
+mutate(reulceration_value = ifelse(reulceration == "Yes", 1, 0), 
+       delta = wound - contra) 
+
+ggplot(First) +
+  aes(x = days_to_healed, y = wound, color = reulceration) +
+  geom_point(shape = "circle", size = 3L) +
+  geom_smooth(method = "nls", formula = y ~ a * log(x + b), 
+              method.args = list(start = list(a = 1, b = 1)),  
+              se = FALSE, color = "darkblue", size =3) +
+  theme_minimal()
+
+mean(First$days_since_healed)
+
+```
